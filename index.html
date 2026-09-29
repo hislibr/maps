@@ -341,11 +341,15 @@ function buildFlat(){
 }
 
 function renderSearch(keyword){
-  var html = '<div class="search-box"><input id="kw" type="search" placeholder="输入文件名关键词，如：海口、上海、郵政輿圖" value="' + esc(keyword) + '"></div>';
-  if(!keyword){
-    html += '<div class="empty">输入关键词，在全部 ' + state.flat.length.toLocaleString() + ' 个文件中即时检索</div>';
-    main.innerHTML = html;
+  // 搜索框只创建一次，之后只更新结果区，避免输入框重建导致焦点/键盘丢失
+  var box = document.getElementById("kw");
+  if(!box){
+    main.innerHTML = '<div class="search-box"><input id="kw" type="search" placeholder="输入文件名关键词，如：海口、上海、郵政輿圖" autocomplete="off"></div><div id="results"></div>';
     bindSearch();
+  }
+  var res = document.getElementById("results");
+  if(!keyword){
+    res.innerHTML = '<div class="empty">输入关键词，在全部 ' + state.flat.length.toLocaleString() + ' 个文件中即时检索</div>';
     return;
   }
   var k = keyword.toLowerCase();
@@ -354,18 +358,17 @@ function renderSearch(keyword){
   for(var i=0;i<arr.length;i++){
     if(arr[i].n.toLowerCase().indexOf(k) >= 0) hits.push(arr[i]);
   }
-  var html2 = '<div class="r-count">找到 <b style="color:var(--main)">' + hits.length + '</b> 个匹配文件</div>';
+  var html = '<div class="r-count">找到 <b style="color:var(--main)">' + hits.length + '</b> 个匹配文件</div>';
   var shown = hits.slice(0, 200);
   shown.forEach(function(h){
-    html2 += '<div class="result-item" data-goto="' + esc(h.path.join("\u0001")) + '" data-name="' + esc(h.n) + '">' +
+    html += '<div class="result-item" data-goto="' + esc(h.path.join("\u0001")) + '" data-name="' + esc(h.n) + '">' +
       '<div class="r-name">' + escName(h.n, keyword) + '</div>' +
       '<div class="r-path">' + esc(DATA.n) + ' / ' + esc(h.path.join(" / ")) + '</div>' +
       '<div class="r-meta">' + fmtSize(h.s) + ' · ' + fmtDate(h.t) + '</div></div>';
   });
-  if(hits.length > shown.length) html2 += '<div class="more">仅显示前 200 条，请细化关键词</div>';
-  if(hits.length === 0) html2 += '<div class="empty">没有匹配的文件，换个关键词试试</div>';
-  main.innerHTML = html + html2;
-  bindSearch();
+  if(hits.length > shown.length) html += '<div class="more">仅显示前 200 条，请细化关键词</div>';
+  if(hits.length === 0) html += '<div class="empty">没有匹配的文件，换个关键词试试</div>';
+  res.innerHTML = html;
 }
 
 /* ---------- 事件 ---------- */
@@ -404,34 +407,41 @@ function bindBrowse(){
 function bindSearch(){
   var kw = document.getElementById("kw");
   if(!kw) return;
-  kw.addEventListener("input", function(){
-    clearTimeout(bindSearch._t);
-    var self = this;
-    bindSearch._t = setTimeout(function(){ renderSearch(self.value.trim()); }, 180);
+  var timer = null;
+  function go(){
+    clearTimeout(timer);
+    timer = setTimeout(function(){ renderSearch(kw.value.trim()); }, 200);
+  }
+  kw.addEventListener("input", function(e){
+    if(e.isComposing) return;   // 输入法拼音组合中不触发，避免中途误搜
+    go();
   });
-  main.querySelectorAll("[data-goto]").forEach(function(el){
-    el.addEventListener("click", function(){
-      var path = el.getAttribute("data-goto").split("\u0001");
-      var name = el.getAttribute("data-name");
-      state.path = path.slice();          // 文件所在文件夹的完整路径
-      state.moreCount = 0;
-      switchTab("browse");                // 内部已 renderBrowse
-      // 高亮目标文件
-      var rows = main.querySelectorAll("[data-file]");
-      for(var i=0;i<rows.length;i++){
-        if(rows[i].getAttribute("data-file") === name){
-          rows[i].scrollIntoView({block:"center"});
-          rows[i].style.outline = "2px solid var(--accent)";
-          rows[i].style.outlineOffset = "-2px";
-          setTimeout(function(){ rows[i].style.outline = "none"; }, 1800);
-          break;
-        }
+  kw.addEventListener("compositionend", go);
+  // 结果区用事件委托，重绘后无需重新绑定
+  var res = document.getElementById("results");
+  if(res) res.addEventListener("click", function(e){
+    var el = e.target.closest ? e.target.closest("[data-goto]") : null;
+    if(!el) return;
+    var path = el.getAttribute("data-goto").split("\u0001");
+    var name = el.getAttribute("data-name");
+    state.path = path.slice();          // 文件所在文件夹的完整路径
+    state.moreCount = 0;
+    switchTab("browse");                // 内部已 renderBrowse
+    // 高亮目标文件
+    var rows = main.querySelectorAll("[data-file]");
+    for(var i=0;i<rows.length;i++){
+      if(rows[i].getAttribute("data-file") === name){
+        rows[i].scrollIntoView({block:"center"});
+        rows[i].style.outline = "2px solid var(--accent)";
+        rows[i].style.outlineOffset = "-2px";
+        setTimeout(function(){ rows[i].style.outline = "none"; }, 1800);
+        break;
       }
-    });
+    }
   });
 }
 
-/* ---------- Tab ---------- */
+
 function setHeaderVar(){
   var h = document.querySelector("header");
   if(h) document.documentElement.style.setProperty("--hdh", h.offsetHeight + "px");
